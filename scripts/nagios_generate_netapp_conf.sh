@@ -110,7 +110,7 @@ function nagios_probe_netapp_disk_status {
      	log_to_file $DEBUG "	host_name             $HOSTNAME" 
 	log_to_file $DEBUG "	use                   generic-service"
     	log_to_file $DEBUG "	service_description   $volume" 
-    	log_to_file $DEBUG "	check_command			  check-netapp-disk!$volume!$DISKUSED_WARNING_THRESHOLD!$DISKUSED_WARNING_THRESHOLD" 
+    	log_to_file $DEBUG "	check_command			  check-netapp-disk!$volume!$DISKUSED_WARNING_THRESHOLD!$DISKUSED_CRITICAL_THRESHOLD" 
     	log_to_file $DEBUG "	normal_check_interval           900"
     	log_to_file $DEBUG "	notification_interval           900"
 #    	log_to_file $DEBUG "	register            0"
