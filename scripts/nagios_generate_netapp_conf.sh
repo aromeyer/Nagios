@@ -100,6 +100,23 @@ function nagios_probe_temperature_status {
 	return $TRUE
 }
 
+function nagios_probe_nfs_status {
+	echodebug $DEBUG "=== Function nagios_probe_nfs_status"
+
+	nfs_is_running=$(ssh $SSH_USER@$NETAPP_IP "nfs status")
+
+	echodebug $DEBUG "nfs server status : $nfs_is_running"
+
+	if ! expr match "$nfs_is_running" ".*NOT.*" > /dev/null; then
+		log_to_file $DEBUG "define service{" 
+		log_to_file $DEBUG "	host_name             $HOSTNAME" 
+		log_to_file $DEBUG "	use         service-nfs-generic" 
+		log_to_file $DEBUG "}" 
+		log_to_file $DEBUG "" 
+	fi
+	return $TRUE
+}
+
 function nagios_probe_netapp_disk_status {
 
 	echodebug $DEBUG "=== Function nagios_probe_netapp_disk_status"
@@ -311,6 +328,23 @@ function log_to_file {
 	return $TRUE
 }
 
+function netapp_check_lun_iscsi {
+	echodebug $DEBUG "=== Function netapp_check_lun_iscsi"
+	echodebug $DEBUG "	volume : $1"	
+	echodebug $DEBUG "	lun_list : $1"
+
+	lun_list="$2"
+
+	for iscsi_lun in $lun_list; do
+		echodebug $DEBUG $iscsi_lun
+		if expr match "$iscsi_lun" "$volume.*" > /dev/null; then
+			return $TRUE
+		fi
+	done
+
+	return $FALSE
+}
+
 ###################
 # ########## INPUT PARAMETERS #########
 parse_input_parameters "$@" 
@@ -347,20 +381,56 @@ nagios_probe_power_status
 #
 #########################
 nagios_probe_temperature_status 
-
+#########################
+#
+# NFS server Status
+#
+#########################
+nagios_probe_nfs_status
+#########################
+#
+# Volume Status
+#
+#########################
 # # Loop over available cifs shares
+echo "	Get volume list..."
 volume_list=$(ssh $SSH_USER@$NETAPP_IP "vol status" | grep raid_dp |awk '{print $1}' | xargs)
+echo "	"$volume_list
+echo "	 done."
+echo "	Get volume status..."
+volume_status=$(ssh $SSH_USER@$NETAPP_IP "vol status" | grep raid_dp |awk '{print $2}' | xargs)
+echo "	"$volume_status
+echo "	 done."
+echo "	Get lun list..."
+lun_list=$(ssh $SSH_USER@$NETAPP_IP "lun show" | awk '{print $1}' | xargs)
+echo "	"$lun_list
+echo "	 done."
+
 ERROR_CODE=$?
 if [ $ERROR_CODE != 0 ]; then
 	echo "Unable to connect to $NETAPP_IP "
 	exit $FALSE
 fi
+
+i=1
 for volume in $volume_list ; do
 	echo "	---> volume: "$volume
-	volume=$(echo $volume | sed -e 's/$/\//')
-	volume="/vol/$volume"
-
-	nagios_probe_netapp_disk_status $volume
+	# Get volume status
+	status=$(echo $volume_status | cut -d' ' -f $i)
+	echo "		---> volume is $status"
+	if [  "$status" == "online" ] ; then 
+		volume=$(echo $volume | sed -e 's/$/\//')
+		volume="/vol/$volume"
+		echo "		--> volume path : "$volume
+		if netapp_check_lun_iscsi $volume "$lun_list"; then
+			echo "		--> iscsi volume ---> skip"
+		else
+			nagios_probe_netapp_disk_status $volume
+		fi
+	else
+		echo "		---> skip"
+	fi
+	let i++
 done
 
 echodebug 1 "=== add limit to nagios conf"
